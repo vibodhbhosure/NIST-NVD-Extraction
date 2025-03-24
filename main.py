@@ -13,6 +13,8 @@ from wordcloud import WordCloud
 from dotenv import load_dotenv
 import os
 import nltk
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 load_dotenv()
 
