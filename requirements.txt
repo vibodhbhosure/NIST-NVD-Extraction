@@ -4,10 +4,7 @@ pandas
 plotly
 joblib
 dill
-re
-ntlk
-collections
+nltk
 wordcloud
 matplotlib
-dotenv
-os
+python-dotenv
