@@ -12,7 +12,14 @@ import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 from dotenv import load_dotenv
 import os
+import nltk
+
 load_dotenv()
+
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
 
 API_KEY = os.getenv("API_KEY")
 
