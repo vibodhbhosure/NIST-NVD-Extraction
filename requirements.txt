@@ -8,3 +8,4 @@ nltk
 wordcloud
 matplotlib
 python-dotenv
+scikit-learn
