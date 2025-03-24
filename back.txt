@@ -2,11 +2,8 @@ import streamlit as st
 import requests
 import pandas as pd
 import plotly.express as px
-from dotenv import load_dotenv
-import os
-load_dotenv()
 
-API_KEY = os.getenv("API_KEY")
+API_KEY = "6f6060da-7e55-441c-b207-5878960b23e8"  # Replace with your actual API key
 
 # --- CVE Data Functions ---
 def fetch_cve_data(params):
