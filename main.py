@@ -17,9 +17,9 @@ import nltk
 load_dotenv()
 
 try:
-    nltk.data.find('tokenizers/punkt')
+    nltk.data.find('tokenizers/punkt_tab')
 except LookupError:
-    nltk.download('punkt')
+    nltk.download('punkt_tab')
 
 API_KEY = os.getenv("API_KEY")
 
