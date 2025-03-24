@@ -2,11 +2,35 @@ import streamlit as st
 import requests
 import pandas as pd
 import plotly.express as px
+import joblib
+import dill
+import re
+import pickle
+from nltk.tokenize import word_tokenize
+from collections import Counter
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
 from dotenv import load_dotenv
 import os
 load_dotenv()
 
 API_KEY = os.getenv("API_KEY")
+
+# --- Load models once globally ---
+if "MEMM_MODEL" not in st.session_state:
+    st.session_state.MEMM_MODEL = joblib.load("memm_model.joblib")
+    st.session_state.MEMM_VEC = joblib.load("memm_vectorizer.joblib")
+    st.session_state.MEMM_LE = joblib.load("memm_label_encoder.joblib")
+    with open("crf_model.pkl", "rb") as f:
+        st.session_state.CRF_MODEL = pickle.load(f)
+    with open("hmm_model.dill", "rb") as f:
+        st.session_state.HMM_MODEL = dill.load(f)
+
+MEMM_MODEL = st.session_state.MEMM_MODEL
+MEMM_VEC = st.session_state.MEMM_VEC
+MEMM_LE = st.session_state.MEMM_LE
+CRF_MODEL = st.session_state.CRF_MODEL
+HMM_MODEL = st.session_state.HMM_MODEL
 
 # --- CVE Data Functions ---
 def fetch_cve_data(params):
@@ -23,6 +47,44 @@ def fetch_cve_data(params):
     else:
         st.error(f"Error fetching CVE data: {response.status_code}")
         return None
+    
+def word2features_simple(sent, i):
+    word = sent[i]
+    features = {
+        'word': word,
+        'is_upper': word.isupper(),
+        'is_title': word.istitle(),
+        'is_digit': word.isdigit()
+    }
+    if i > 0:
+        features.update({'-1:word': sent[i-1], '-1:is_title': sent[i-1].istitle()})
+    else:
+        features['BOS'] = True
+    if i < len(sent) - 1:
+        features.update({'+1:word': sent[i+1], '+1:is_title': sent[i+1].istitle()})
+    else:
+        features['EOS'] = True
+    return features
+
+def extract_entities(df, model):
+    all_entities = []
+    for _, row in df.iterrows():
+        tokens = word_tokenize(row["Description"])
+        if model == "MEMM":
+            feats = [word2features_simple(tokens, i) for i in range(len(tokens))]
+            pred_tags = MEMM_LE.inverse_transform(MEMM_MODEL.predict(MEMM_VEC.transform(feats)))
+        elif model == "CRF":
+            feats = [word2features_simple(tokens, i) for i in range(len(tokens))]
+            pred_tags = CRF_MODEL.predict_single(feats)
+        elif model == "HMM":
+            tagged = HMM_MODEL.tag(tokens)
+            pred_tags = [tag for _, tag in tagged]
+
+        for token, tag in zip(tokens, pred_tags):
+            if any(prefix in tag for prefix in ["OS", "TOOL", "TIME", "VULNAME", "IP", "MAL", "ACT", "URL"]):
+                all_entities.append((token, tag))
+
+    return pd.DataFrame(all_entities, columns=["Entity", "Tag"])
 
 def parse_cve_data(data):
     if not data or "vulnerabilities" not in data:
@@ -44,6 +106,26 @@ def parse_cve_data(data):
         })
 
     return pd.DataFrame(cve_list)
+
+def extract_year(cve_id):
+    match = re.match(r'CVE-(\\d{4})', cve_id)
+    if match:
+        return f'{match.group(1)}-01-01'
+    return None
+
+def contains_key_entity(desc, model_choice):
+    tokens = word_tokenize(desc)
+    if model_choice == "MEMM":
+        feats = [word2features_simple(tokens, i) for i in range(len(tokens))]
+        tags = MEMM_LE.inverse_transform(MEMM_MODEL.predict(MEMM_VEC.transform(feats)))
+    elif model_choice == "CRF":
+        feats = [word2features_simple(tokens, i) for i in range(len(tokens))]
+        tags = CRF_MODEL.predict_single(feats)
+    elif model_choice == "HMM":
+        tagged = HMM_MODEL.tag(tokens)
+        tags = [tag for _, tag in tagged]
+    return any(any(prefix in tag for prefix in ["OS", "TOOL", "TIME", "VULNAME", "IP", "MAL", "ACT", "URL"]) for tag in tags)
+
 
 # --- Source Data Functions ---
 def fetch_source_data(params):
@@ -75,7 +157,7 @@ def parse_source_data(data):
 def main():
     st.title("NVD Explorer - CVE & Source API 2.0")
 
-    tab1, tab2, tab3 = st.tabs(["CVE Search", "Data Sources", "NER Extractor"])
+    tab1, tab2, tab3, tab4 = st.tabs(["CVE Search", "Data Sources", "NER Extractor", "NER Analysis"])
 
     # --- CVE Tab ---
     with tab1:
@@ -263,5 +345,49 @@ def main():
         else:
             st.info("Please fetch CVE data first from the 'CVE Search' tab.")
 
+    with tab4:
+        st.subheader("NER-Based Entity Analysis from CVE Descriptions")
+        model_choice = st.selectbox("Select NER model for analysis", ["MEMM", "CRF", "HMM"], key="ner_model_analysis")
+        if "cve_df" in st.session_state and not st.session_state["cve_df"].empty:
+            df = st.session_state["cve_df"]
+            entity_df = extract_entities(df, model_choice)
+            tag_filter = st.multiselect("Filter by Entity Type", options=sorted(set([tag.split("-")[-1] for tag in entity_df["Tag"]])), default=[])
+            if tag_filter:
+                entity_df = entity_df[entity_df["Tag"].apply(lambda t: t.split("-")[-1] in tag_filter)]
+            if not entity_df.empty:
+                st.write("### 📊 Top Mentioned Entities")
+                st.bar_chart(entity_df["Entity"].value_counts().head(15))
+
+                st.write("### 🧠 Entity Type Distribution")
+                entity_types = entity_df["Tag"].apply(lambda x: x.split("-")[-1])
+                st.plotly_chart(px.pie(values=entity_types.value_counts().values,
+                                       names=entity_types.value_counts().index,
+                                       title="Entity Type Breakdown"))
+                
+                st.write("### 🔠 WordCloud of Entities")
+                wc = WordCloud(width=800, height=300, background_color='white')
+                wc.generate_from_frequencies(entity_df["Entity"].value_counts())
+                fig, ax = plt.subplots(figsize=(10, 4))
+                ax.imshow(wc, interpolation='bilinear')
+                ax.axis("off")
+                st.pyplot(fig)
+
+                st.write("### 📄 Download Extracted Entities")
+                st.download_button(
+                    label="📥 Download as CSV",
+                    data=entity_df.to_csv(index=False).encode("utf-8"),
+                    file_name="ner_entities_from_cves.csv",
+                    mime="text/csv"
+                )
+
+                st.write("### 📊 Compare Models Side-by-Side")
+                model_comparison = {}
+                for model in ["MEMM", "CRF", "HMM"]:
+                    edf = extract_entities(df, model)
+                    model_comparison[model] = len(edf)
+
+                comp_df = pd.DataFrame(list(model_comparison.items()), columns=["Model", "# Entities Detected"])
+                st.bar_chart(comp_df.set_index("Model"))
+                
 if __name__ == "__main__":
     main()
