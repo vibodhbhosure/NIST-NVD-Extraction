@@ -2,3 +2,12 @@ streamlit
 requests
 pandas
 plotly
+joblib
+dill
+re
+ntlk
+collections
+wordcloud
+matplotlib
+dotenv
+os
