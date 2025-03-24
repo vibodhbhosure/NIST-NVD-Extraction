@@ -20,12 +20,6 @@ ENV/
 *.env
 *.json
 
-# Ignore machine learning model files
-*.h5
-*.pkl
-*.joblib
-*.dill
-
 # Ignore log files
 *.log
 
