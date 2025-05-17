@@ -27,12 +27,12 @@ API_KEY = os.getenv("API_KEY")
 
 # --- Load models once globally ---
 if "MEMM_MODEL" not in st.session_state:
-    st.session_state.MEMM_MODEL = joblib.load("memm_model.joblib")
-    st.session_state.MEMM_VEC = joblib.load("memm_vectorizer.joblib")
-    st.session_state.MEMM_LE = joblib.load("memm_label_encoder.joblib")
-    with open("crf_model.pkl", "rb") as f:
+    st.session_state.MEMM_MODEL = joblib.load("models/memm_model.joblib")
+    st.session_state.MEMM_VEC = joblib.load("models/memm_vectorizer.joblib")
+    st.session_state.MEMM_LE = joblib.load("models/memm_label_encoder.joblib")
+    with open("models/crf_model.pkl", "rb") as f:
         st.session_state.CRF_MODEL = pickle.load(f)
-    with open("hmm_model.dill", "rb") as f:
+    with open("models/hmm_model.dill", "rb") as f:
         st.session_state.HMM_MODEL = dill.load(f)
 
 MEMM_MODEL = st.session_state.MEMM_MODEL
@@ -256,11 +256,6 @@ def main():
             st.write(f"**Description:** {description}")
 
             with st.spinner("Extracting key entities..."):
-                import joblib
-                from nltk.tokenize import word_tokenize
-                import dill
-                import pickle
-
                 # Load and prepare tokenizer
                 tokens = word_tokenize(description)
 
@@ -293,9 +288,9 @@ def main():
                     return features
 
                 if model_choice == "MEMM":
-                    clf = joblib.load("memm_model.joblib")
-                    vec = joblib.load("memm_vectorizer.joblib")
-                    le = joblib.load("memm_label_encoder.joblib")
+                    clf = MEMM_MODEL
+                    vec = MEMM_VEC
+                    le = MEMM_LE
 
                     features = [word2features_simple(tokens, i) for i in range(len(tokens))]
                     X_vec = vec.transform(features)
@@ -303,14 +298,12 @@ def main():
                     pred_tags = le.inverse_transform(pred_enc)
 
                 elif model_choice == "CRF":
-                    with open("crf_model.pkl", "rb") as f:
-                        crf = pickle.load(f)
+                    crf = CRF_MODEL
                     features = [word2features_simple(tokens, i) for i in range(len(tokens))]
                     pred_tags = crf.predict_single(features)
 
                 elif model_choice == "HMM":
-                    with open("hmm_model.dill", "rb") as f:
-                        hmm_model = dill.load(f)
+                    hmm_model = HMM_MODEL
                     tagged = hmm_model.tag(tokens)
                     tagged = hmm_model.tag(tokens)
                     pred_tags = [tag for _, tag in tagged]
